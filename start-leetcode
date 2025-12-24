@@ -150,8 +150,7 @@ create_problem_file() {
       .replace(/\\r/g, '')
       .replace(/\\t/g, ' ')
       .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 500);
+      .trim();
 
     console.log(JSON.stringify({
       filepath,
@@ -298,8 +297,8 @@ launch_tmux() {
   # Pane 1 (top right): Start Claude Code with MCP server
   tmux send-keys -t "$session_name:0.1" "cd $MCP_SERVER_DIR && claude" C-m
 
-  # Pane 2 (bottom right): Display markdown in nvim (readonly with rendering)
-  tmux send-keys -t "$session_name:0.2" "nvim -R -c 'setlocal nomodifiable nonumber norelativenumber signcolumn=no' -c 'RenderMarkdown enable' '$problem_filepath'" C-m
+  # Pane 2 (bottom right): Display problem description in nvim
+  tmux send-keys -t "$session_name:0.2" "nvim -R -c 'setlocal nomodifiable nonumber norelativenumber signcolumn=no' '$problem_filepath'" C-m
 
   # Select Neovim pane
   tmux select-pane -t "$session_name:0.0"
