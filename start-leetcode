@@ -172,8 +172,11 @@ create_problem_file() {
   # Create directory if needed
   mkdir -p "$WORKSPACE_DIR/$category_dir"
 
+  # Define problem filepath
+  local problem_filepath="${filepath%.java}-problem.md"
+
   # Create files if they don't exist
-  if [ ! -f "$filepath" ]; then
+  if [ ! -f "$filepath" ] || [ ! -f "$problem_filepath" ]; then
     # Write both solution file and problem description
     echo "$problem_info" | node -e "
       const fs = require('fs');
@@ -185,8 +188,9 @@ create_problem_file() {
       process.stdin.on('end', () => {
         const info = JSON.parse(data);
 
-        // Create solution file (minimal header)
-        const solutionContent = \`/*
+        // Create solution file if it doesn't exist (minimal header)
+        if (!fs.existsSync(info.filepath)) {
+          const solutionContent = \`/*
  * \${info.title}
  * Difficulty: \${info.difficulty} | Category: \${info.category}
  * LeetCode: \${info.leetcodeUrl}
@@ -196,7 +200,8 @@ create_problem_file() {
 \${info.boilerplate}
 \`;
 
-        fs.writeFileSync(info.filepath, solutionContent);
+          fs.writeFileSync(info.filepath, solutionContent);
+        }
 
         // Create problem description file (markdown)
         const problemPath = info.filepath.replace('.java', '-problem.md');
@@ -248,11 +253,10 @@ create_problem_file() {
       exit 1
     fi
   else
-    echo -e "${BLUE}Opening existing file: $filepath${NC}" >&2
+    echo -e "${BLUE}Opening existing files: $filepath${NC}" >&2
   fi
 
   # Output both filepath and problem filepath
-  local problem_filepath="${filepath%.java}-problem.md"
   echo "$filepath"
   echo "$problem_filepath"
 }
