@@ -1,0 +1,19 @@
+{
+  "name": "leetcode-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for LeetCode/NeetCode problem practice",
+  "main": "index.js",
+  "bin": {
+    "leetcode-mcp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "scrape": "node scraper.js"
+  },
+  "keywords": ["leetcode", "neetcode", "mcp", "coding-interview"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1"
+  }
+}

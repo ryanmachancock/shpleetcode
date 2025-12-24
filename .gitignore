@@ -1,0 +1,17 @@
+# Node
+node_modules/
+npm-debug.log
+package-lock.json
+
+# Claude
+.claude/
+.mcp.json
+
+# System
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
