@@ -13,7 +13,7 @@ Terminal-based NeetCode/LeetCode practice environment with Claude Code integrati
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/shpleetcode.git
+git clone https://github.com/ryanmachancock/shpleetcode.git
 cd shpleetcode
 ./install.sh
 ```
