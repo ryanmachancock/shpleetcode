@@ -54,7 +54,7 @@ Claude has access to these tools:
 - `get_current_problem()` - Get your current file contents
 - `list_problems()` - Browse all problems with filters
 - `get_problem(id)` - Get problem details
-- `mark_solved(id)` - Mark problem complete
+- `mark_solved(id)` - Mark problem complete (or use `./start-leetcode --mark <id>`)
 - `get_progress()` - View your stats
 - `search_problems(query)` - Search by title or tags
 
@@ -80,10 +80,13 @@ shpleetcode/
 
 ## Tips
 
-- Filter by difficulty: `./start-leetcode Easy`
+- Filter by difficulty: `./start-leetcode Easy` (case-insensitive)
+- Mark a problem solved: `./start-leetcode --mark 0001-two-sum`
+- Regenerate all description files: `./start-leetcode --regen`
+- Regenerate one description file: `./start-leetcode --regen 0001-two-sum`
 - Problems marked `[B75]` are from the Blind 75 list
 - Ask Claude for hints, not solutions
-- Use `Ctrl-h/l` to navigate between panes
+- Navigate panes with `Prefix + arrow` (standard tmux), or `Ctrl-b o` to cycle
 
 ## License
 

@@ -104,28 +104,9 @@ else
   fi
 fi
 
-# Neovim auto-save setup instructions
 echo ""
 echo -e "${BLUE}═══════════════════════════════════════${NC}"
 echo -e "${GREEN}Installation complete!${NC}"
-echo ""
-echo "To enable auto-save in Neovim, add this to your config:"
-echo -e "${YELLOW}"
-cat <<'EOF'
--- Auto-save for LeetCode workspace files
-vim.opt.updatetime = 1000
-
-vim.api.nvim_create_autocmd({ "CursorHold", "CursorHoldI" }, {
-  pattern = { "*.java", "*.py", "*.js", "*.cpp", "*.c" },
-  callback = function()
-    local filepath = vim.fn.expand('%:p')
-    if filepath:match("/.leetcode/workspace/") and vim.bo.modified then
-      vim.cmd('silent! write')
-    end
-  end,
-})
-EOF
-echo -e "${NC}"
 echo ""
 echo "To start practicing, run:"
 echo -e "${GREEN}  ./start-leetcode${NC}"
