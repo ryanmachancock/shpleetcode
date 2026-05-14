@@ -405,12 +405,12 @@ NODESCRIPT
 launch_tmux() {
   local filepath="$1"
   local problem_filepath="$2"
+  local problem_id="$3"
   local session_name="leetcode"
 
   # Verify files exist and have content before launching
   if [ ! -f "$filepath" ] || [ ! -s "$filepath" ]; then
     echo -e "${RED}Error: Solution file does not exist or is empty: $filepath${NC}"
-    echo "Waiting for file to be ready..."
     sleep 0.5
     if [ ! -f "$filepath" ] || [ ! -s "$filepath" ]; then
       echo -e "${RED}Fatal: File still not ready. Aborting.${NC}"
@@ -418,21 +418,60 @@ launch_tmux() {
     fi
   fi
 
-  echo -e "${GREEN}Files verified: $filepath ($(stat -c '%s' "$filepath") bytes)${NC}"
+  # Look up problem metadata for status bar
+  local problem_title difficulty
+  problem_title=$(PROBLEMS_FILE="$PROBLEMS_FILE" PROBLEM_ID="$problem_id" node -e '
+    const fs = require("fs");
+    const db = JSON.parse(fs.readFileSync(process.env.PROBLEMS_FILE, "utf8"));
+    const p = db.problems.find(x => x.id === process.env.PROBLEM_ID);
+    if (p) process.stdout.write(p.title);
+  ' 2>/dev/null)
+  difficulty=$(PROBLEMS_FILE="$PROBLEMS_FILE" PROBLEM_ID="$problem_id" node -e '
+    const fs = require("fs");
+    const db = JSON.parse(fs.readFileSync(process.env.PROBLEMS_FILE, "utf8"));
+    const p = db.problems.find(x => x.id === process.env.PROBLEM_ID);
+    if (p) process.stdout.write(p.difficulty);
+  ' 2>/dev/null)
+
+  # Difficulty color for tmux status bar (#[fg=...] format)
+  local diff_color
+  case "$difficulty" in
+    Easy)   diff_color="#[fg=colour114]" ;;
+    Medium) diff_color="#[fg=colour214]" ;;
+    Hard)   diff_color="#[fg=colour196]" ;;
+    *)      diff_color="#[fg=colour244]" ;;
+  esac
+
+  echo -e "${GREEN}Opening: $problem_title${NC}"
 
   # Kill existing session if it exists
   tmux kill-session -t "$session_name" 2>/dev/null || true
 
-  # Create new session with explicit size
-  tmux new-session -d -s "$session_name" -x 200 -y 50
+  # Create new session
+  tmux new-session -d -s "$session_name" -x 220 -y 55
 
-  # Split window horizontally (left/right 50/50)
+  # ── Apply dark theme to this session (does not touch ~/.tmux.conf) ──────────
+  tmux set-option -t "$session_name" pane-border-style         "fg=colour238"
+  tmux set-option -t "$session_name" pane-active-border-style  "fg=colour244"
+  tmux set-option -t "$session_name" pane-border-status        top
+  tmux set-option -t "$session_name" pane-border-format        "#[fg=colour244,bold] #{pane_title} #[fg=colour238,nobold]"
+  tmux set-option -t "$session_name" status                    on
+  tmux set-option -t "$session_name" status-bg                 colour233
+  tmux set-option -t "$session_name" status-fg                 colour244
+  tmux set-option -t "$session_name" status-left               "#[fg=colour250,bold] ShpleetCode #[fg=colour238,nobold]│ "
+  tmux set-option -t "$session_name" status-right              " ${problem_title}  ${diff_color}${difficulty}#[fg=colour238] "
+  tmux set-option -t "$session_name" status-left-length        22
+  tmux set-option -t "$session_name" status-right-length       60
+  tmux set-option -t "$session_name" window-style              "bg=colour234"
+  tmux set-option -t "$session_name" window-active-style       "bg=colour234"
+  # ────────────────────────────────────────────────────────────────────────────
+
+  # Split window horizontally (left/right)
   tmux split-window -h -t "$session_name"
 
-  # Split right pane vertically (top/bottom) for Claude and problem description
+  # Split right pane vertically (Claude top, problem viewer bottom)
   tmux split-window -v -t "$session_name:0.1" -l 30
 
-  # Small delay to ensure tmux panes are ready
   sleep 0.1
 
   # Write current file path for MCP server
@@ -444,19 +483,24 @@ launch_tmux() {
   rm -f "$HOME/.local/state/nvim/swap/${swap_name}.swp" 2>/dev/null || true
   rm -f "$HOME/.local/share/nvim/swap/${swap_name}.swp" 2>/dev/null || true
 
-  # Pane 0 (left): Open solution in Neovim
-  tmux send-keys -t "$session_name:0.0" "nvim -c 'set updatetime=1000 | autocmd CursorHold,CursorHoldI <buffer> silent! write' '$filepath'" C-m
+  # Set pane titles (shown in border labels)
+  tmux select-pane -t "$session_name:0.0" -T " $(basename "$filepath") "
+  tmux select-pane -t "$session_name:0.1" -T " Claude "
+  tmux select-pane -t "$session_name:0.2" -T " ${problem_title} "
 
-  # Pane 1 (top right): Start Claude Code with MCP server
+  # Pane 0 (left): Neovim with dark theme + auto-save
+  tmux send-keys -t "$session_name:0.0" \
+    "nvim -c 'colorscheme habamax' -c 'set updatetime=1000 | autocmd CursorHold,CursorHoldI <buffer> silent! write' '$filepath'" C-m
+
+  # Pane 1 (top right): Claude Code
   tmux send-keys -t "$session_name:0.1" "claude" C-m
 
-  # Pane 2 (bottom right): Display problem description in nvim
-  tmux send-keys -t "$session_name:0.2" "nvim -R -c 'setlocal nomodifiable nonumber norelativenumber signcolumn=no' '$problem_filepath'" C-m
+  # Pane 2 (bottom right): Interactive problem viewer
+  tmux send-keys -t "$session_name:0.2" "node '$MCP_SERVER_DIR/problem-viewer.js' '$problem_id'" C-m
 
-  # Select Neovim pane
+  # Focus the editor pane
   tmux select-pane -t "$session_name:0.0"
 
-  # Attach to session
   tmux attach-session -t "$session_name"
 }
 
@@ -533,7 +577,7 @@ main() {
 
   # Launch tmux
   echo -e "${BLUE}Launching tmux session...${NC}"
-  launch_tmux "$filepath" "$problem_filepath"
+  launch_tmux "$filepath" "$problem_filepath" "$problem_id"
 }
 
 main "$@"
