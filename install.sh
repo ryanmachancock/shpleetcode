@@ -41,7 +41,7 @@ if [ ${#missing[@]} -gt 0 ]; then
   echo "  fzf:   https://github.com/junegunn/fzf"
   echo "  tmux:  sudo apt install tmux"
   echo "  nvim:  https://neovim.io/"
-  echo "  claude: npm install -g @anthropic/claude-code"
+  echo "  claude: npm install -g @anthropic-ai/claude-code"
   echo "  node:  https://nodejs.org/"
   exit 1
 fi
