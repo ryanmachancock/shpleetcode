@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
-// Interactive problem viewer — replaces the nvim -R pane
+// Interactive problem viewer — runs in the bottom-right tmux pane
 // Usage: node problem-viewer.js <problem-id>
-// Keys: j/k or arrows=scroll, d/u=half-page, g/G=top/bottom,
-//       h=hints, t=tests, r=run, s=submit, m=mark, q=quit
+// Keys (normal): j/k arrows=scroll  d/u=half-page  g/G=top/bottom
+//                h=hints popup  t=tests popup  r=run  s=submit  m=mark  q=quit
+// Keys (popup):  j/k arrows=scroll  d/u=half-page  Esc/q=close
 
 const fs = require('fs');
 const path = require('path');
@@ -12,10 +13,9 @@ const { execFileSync } = require('child_process');
 
 const PROBLEMS_FILE = path.join(process.env.HOME, '.leetcode', 'problems.json');
 const PROGRESS_FILE = path.join(process.env.HOME, '.leetcode', 'progress.json');
-const CURRENT_FILE  = path.join(process.env.HOME, '.leetcode', '.current-file');
 const CLI_SUBMIT    = path.join(__dirname, 'cli-submit.js');
 
-// ── ANSI helpers ──────────────────────────────────────────────────────────────
+// ── ANSI ──────────────────────────────────────────────────────────────────────
 
 const R      = '\x1b[0m';
 const BOLD   = '\x1b[1m';
@@ -29,7 +29,7 @@ const WHITE  = '\x1b[97m';
 
 const DIFF_COLOR = { Easy: GREEN, Medium: YELLOW, Hard: RED };
 
-function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*m/g, ''); }
+function stripAnsi(s) { return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, ''); }
 
 // ── HTML cleaning ─────────────────────────────────────────────────────────────
 
@@ -56,9 +56,25 @@ function cleanHtml(html) {
     .trim();
 }
 
-// ── Content builder ───────────────────────────────────────────────────────────
+// ── Word-wrap plain text to fit a given column width ─────────────────────────
 
-function buildLines(problem, progress, showHints, showTests) {
+function wordWrap(text, maxW) {
+  if (text.length <= maxW) return [text];
+  const words = text.split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const candidate = cur ? cur + ' ' + w : w;
+    if (candidate.length <= maxW) { cur = candidate; }
+    else { if (cur) lines.push(cur); cur = w; }
+  }
+  if (cur) lines.push(cur);
+  return lines.length ? lines : [text];
+}
+
+// ── Main content (description pane) ──────────────────────────────────────────
+
+function buildLines(problem, progress) {
   const w = process.stdout.columns - 4;
   const hr = `  ${GRAY}${'─'.repeat(Math.max(w, 20))}${R}`;
   const solved = progress?.solved?.[problem.id];
@@ -66,7 +82,7 @@ function buildLines(problem, progress, showHints, showTests) {
 
   const lines = [];
 
-  // ── header
+  // header
   lines.push('');
   lines.push(`  ${BOLD}${WHITE}${problem.title}${R}`);
   lines.push(
@@ -79,54 +95,31 @@ function buildLines(problem, progress, showHints, showTests) {
   lines.push(hr);
   lines.push('');
 
-  // ── description
-  const desc = cleanHtml(problem.description);
-  for (const line of desc.split('\n')) {
+  // description
+  for (const line of cleanHtml(problem.description).split('\n')) {
     lines.push('  ' + line);
   }
   lines.push('');
 
-  // ── hints
+  // hints / tests prompts (content lives in popups)
   if (problem.hints?.length > 0) {
-    if (showHints) {
-      lines.push(`  ${BOLD}${CYAN}Hints${R}`);
-      lines.push(hr);
-      problem.hints.forEach((hint, i) => {
-        lines.push(`  ${GRAY}${i + 1}.${R} ${hint}`);
-      });
-      lines.push('');
-    } else {
-      lines.push(`  ${DIM}${problem.hints.length} hint(s) — press ${CYAN}h${R}${DIM} to reveal${R}`);
-      lines.push('');
-    }
+    lines.push(`  ${DIM}${problem.hints.length} hint(s) available — press ${CYAN}h${R}${DIM} to open${R}`);
+    lines.push('');
   }
-
-  // ── sample test cases
   if (problem.sampleTestCase) {
-    if (showTests) {
-      lines.push(`  ${BOLD}${CYAN}Sample Test Cases${R}`);
-      lines.push(hr);
-      for (const line of problem.sampleTestCase.split('\n')) {
-        lines.push(`  ${GRAY}${line}${R}`);
-      }
-      lines.push('');
-    } else {
-      lines.push(`  ${DIM}Sample tests hidden — press ${CYAN}t${R}${DIM} to show${R}`);
-      lines.push('');
-    }
+    lines.push(`  ${DIM}Sample test cases — press ${CYAN}t${R}${DIM} to open${R}`);
+    lines.push('');
   }
 
   return lines;
 }
 
-// ── Renderer ──────────────────────────────────────────────────────────────────
+// ── Background renderer ───────────────────────────────────────────────────────
 
-function render(problem, progress, scrollOffset, showHints, showTests) {
+function renderBackground(lines, scrollOffset, problem) {
   const height = process.stdout.rows;
-  const contentRows = height - 2; // reserve 2 for footer
-
-  const lines = buildLines(problem, progress, showHints, showTests);
-  const out = ['\x1b[?25l']; // hide cursor
+  const contentRows = height - 2;
+  const out = ['\x1b[?25l'];
 
   for (let i = 0; i < contentRows; i++) {
     out.push(`\x1b[${i + 1};1H\x1b[2K`);
@@ -135,41 +128,107 @@ function render(problem, progress, scrollOffset, showHints, showTests) {
   }
 
   // divider
-  const divider = `${GRAY}${'─'.repeat(process.stdout.columns)}${R}`;
-  out.push(`\x1b[${height - 1};1H\x1b[2K${divider}`);
+  out.push(`\x1b[${height - 1};1H\x1b[2K${GRAY}${'─'.repeat(process.stdout.columns)}${R}`);
 
   // footer
-  const hKey = problem.hints?.length > 0
-    ? (showHints ? `${CYAN}[h]${R} hide hints  ` : `${CYAN}[h]${R} hints  `)
-    : '';
-  const tKey = problem.sampleTestCase
-    ? (showTests ? `${CYAN}[t]${R} hide tests  ` : `${CYAN}[t]${R} tests  `)
-    : '';
-  const scrollInfo = `${GRAY}${scrollOffset + 1}/${lines.length}${R}`;
+  const hasHints = problem.hints?.length > 0;
+  const hasTests = !!problem.sampleTestCase;
   const footer =
-    `  ${hKey}${tKey}` +
+    `  ` +
+    (hasHints ? `${CYAN}[h]${R} hints  ` : '') +
+    (hasTests ? `${CYAN}[t]${R} tests  ` : '') +
     `${GREEN}[r]${R} run  ${GREEN}[s]${R} submit  ` +
     `${YELLOW}[m]${R} mark  ` +
-    `${DIM}[g/G] top/btm  [q] quit${R}  ${scrollInfo}`;
+    `${DIM}[g/G] top/btm  [q] quit${R}` +
+    `  ${GRAY}${scrollOffset + 1}/${lines.length}${R}`;
   out.push(`\x1b[${height};1H\x1b[2K${footer}`);
 
   process.stdout.write(out.join(''));
   return lines.length;
 }
 
-// ── Run / submit action ───────────────────────────────────────────────────────
+// ── Popup ─────────────────────────────────────────────────────────────────────
+
+function popupDims() {
+  const termH = process.stdout.rows;
+  const termW = process.stdout.columns;
+  const popW    = Math.min(Math.max(Math.floor(termW * 0.75), 52), 92);
+  const innerW  = popW - 4;            // 1 border + 1 pad each side
+  const innerH  = Math.max(6, Math.floor(termH * 0.6));
+  const popH    = innerH + 3;          // top border + innerH + footer + bottom border
+  const left    = Math.max(1, Math.floor((termW - popW) / 2) + 1);
+  const top     = Math.max(1, Math.floor((termH - popH) / 2) + 1);
+  return { popW, innerW, innerH, popH, left, top };
+}
+
+function drawPopup(popup) {
+  const { popW, innerW, innerH, popH, left, top } = popupDims();
+  const maxScroll = Math.max(0, popup.lines.length - innerH);
+  const visible   = popup.lines.slice(popup.scroll, popup.scroll + innerH);
+  const out = [];
+
+  // top border with centred title
+  const titleStr  = ` ${BOLD}${WHITE}${popup.title}${R}${WHITE} `;
+  const titleLen  = ` ${popup.title} `.length;
+  const dashes    = popW - 2 - titleLen;
+  const leftD     = Math.floor(dashes / 2);
+  const rightD    = dashes - leftD;
+  out.push(`\x1b[${top};${left}H${WHITE}┌${'─'.repeat(leftD)}${titleStr}${'─'.repeat(rightD)}┐${R}`);
+
+  // content rows
+  for (let i = 0; i < innerH; i++) {
+    const row = top + 1 + i;
+    const text = i < visible.length ? visible[i] : '';
+    const visLen = stripAnsi(text).length;
+    const pad  = ' '.repeat(Math.max(0, innerW - visLen));
+    out.push(`\x1b[${row};${left}H${WHITE}│${R} ${text}${pad} ${WHITE}│${R}`);
+  }
+
+  // footer row
+  const scrollNote = maxScroll > 0 ? `  ${GRAY}${popup.scroll + 1}/${popup.lines.length}${R}` : '';
+  const footerText = `${DIM}[j/k ↑↓] scroll  [d/u] half-page  [Esc/q] close${R}${scrollNote}`;
+  const footerLen  = stripAnsi(footerText).length;
+  const footerPad  = ' '.repeat(Math.max(0, innerW - footerLen));
+  const footerRow  = top + 1 + innerH;
+  out.push(`\x1b[${footerRow};${left}H${WHITE}│${R} ${footerText}${footerPad} ${WHITE}│${R}`);
+
+  // bottom border
+  out.push(`\x1b[${footerRow + 1};${left}H${WHITE}└${'─'.repeat(popW - 2)}┘${R}`);
+
+  process.stdout.write(out.join(''));
+}
+
+function buildHintLines(problem, innerW) {
+  const lines = [];
+  problem.hints.forEach((hint, i) => {
+    const prefix = `${GRAY}${i + 1}.${R} `;
+    const prefixLen = `${i + 1}. `.length;
+    const wrapped = wordWrap(hint, innerW - prefixLen);
+    lines.push(prefix + wrapped[0]);
+    for (let j = 1; j < wrapped.length; j++) {
+      lines.push(' '.repeat(prefixLen) + wrapped[j]);
+    }
+    lines.push('');
+  });
+  return lines;
+}
+
+function buildTestLines(problem) {
+  return problem.sampleTestCase
+    .split('\n')
+    .map(l => `${GRAY}${l}${R}`);
+}
+
+// ── Run / submit ──────────────────────────────────────────────────────────────
 
 function runAction(mode) {
-  process.stdout.write('\x1b[?25h\x1b[2J\x1b[H'); // show cursor, clear
+  process.stdout.write('\x1b[?25h\x1b[2J\x1b[H');
   process.stdin.setRawMode(false);
-
   try {
     execFileSync(process.execPath, [CLI_SUBMIT, mode], { stdio: 'inherit' });
-  } catch { /* non-zero exit is fine — output already shown */ }
-
+  } catch { /* error output already shown */ }
   process.stdout.write(`\n${DIM}  Press any key to return...${R}`);
   process.stdin.setRawMode(true);
-
   return new Promise(resolve => process.stdin.once('data', resolve));
 }
 
@@ -180,14 +239,12 @@ async function main() {
 
   if (!fs.existsSync(PROBLEMS_FILE)) {
     process.stdout.write('Problems database not found. Run: npm run scrape\n');
-    await new Promise(() => {}); // keep pane open
+    await new Promise(() => {});
     return;
   }
 
   const db = JSON.parse(fs.readFileSync(PROBLEMS_FILE, 'utf8'));
-  const problem = problemId
-    ? db.problems.find(p => p.id === problemId)
-    : null;
+  const problem = problemId ? db.problems.find(p => p.id === problemId) : null;
 
   if (!problem) {
     process.stdout.write(`\x1b[2J\x1b[H\n  ${DIM}No problem loaded.${R}\n`);
@@ -195,22 +252,23 @@ async function main() {
     return;
   }
 
-  let scrollOffset = 0;
-  let showHints    = false;
-  let showTests    = false;
-
   function loadProgress() {
     if (!fs.existsSync(PROGRESS_FILE)) return { solved: {} };
     return JSON.parse(fs.readFileSync(PROGRESS_FILE, 'utf8'));
   }
 
+  let scrollOffset = 0;
+  const popup = { active: false, title: '', lines: [], scroll: 0 };
+
   function redraw() {
-    const totalLines = render(problem, loadProgress(), scrollOffset, showHints, showTests);
-    const maxScroll = Math.max(0, totalLines - (process.stdout.rows - 2));
-    if (scrollOffset > maxScroll) { scrollOffset = maxScroll; render(problem, loadProgress(), scrollOffset, showHints, showTests); }
+    const lines    = buildLines(problem, loadProgress());
+    const maxScroll = Math.max(0, lines.length - (process.stdout.rows - 2));
+    if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+    renderBackground(lines, scrollOffset, problem);
+    if (popup.active) drawPopup(popup);
   }
 
-  process.stdout.write('\x1b[2J'); // clear screen once
+  process.stdout.write('\x1b[2J');
   process.stdout.on('resize', redraw);
   redraw();
 
@@ -218,10 +276,49 @@ async function main() {
   process.stdin.resume();
   process.stdin.setEncoding('utf8');
 
+  function openPopup(title, lines) {
+    popup.active = true;
+    popup.title  = title;
+    popup.lines  = lines;
+    popup.scroll = 0;
+    drawPopup(popup);
+  }
+
+  function closePopup() {
+    popup.active = false;
+    process.stdout.write('\x1b[2J');
+    redraw();
+  }
+
   process.stdin.on('data', async key => {
-    const totalLines = buildLines(problem, loadProgress(), showHints, showTests).length;
-    const maxScroll  = Math.max(0, totalLines - (process.stdout.rows - 2));
-    const half       = Math.max(1, Math.floor((process.stdout.rows - 2) / 2));
+    // ── popup mode ────────────────────────────────────────────────────────────
+    if (popup.active) {
+      const { innerH } = popupDims();
+      const maxScroll  = Math.max(0, popup.lines.length - innerH);
+      const half       = Math.max(1, Math.floor(innerH / 2));
+
+      if (key === '\x1b' || key === 'q' || key === '\x03') {
+        closePopup();
+      } else if (key === 'j' || key === '\x1b[B') {
+        popup.scroll = Math.min(popup.scroll + 1, maxScroll); drawPopup(popup);
+      } else if (key === 'k' || key === '\x1b[A') {
+        popup.scroll = Math.max(0, popup.scroll - 1); drawPopup(popup);
+      } else if (key === 'd' || key === '\x04') {
+        popup.scroll = Math.min(popup.scroll + half, maxScroll); drawPopup(popup);
+      } else if (key === 'u' || key === '\x15') {
+        popup.scroll = Math.max(0, popup.scroll - half); drawPopup(popup);
+      } else if (key === 'g') {
+        popup.scroll = 0; drawPopup(popup);
+      } else if (key === 'G') {
+        popup.scroll = maxScroll; drawPopup(popup);
+      }
+      return;
+    }
+
+    // ── normal mode ───────────────────────────────────────────────────────────
+    const lines     = buildLines(problem, loadProgress());
+    const maxScroll = Math.max(0, lines.length - (process.stdout.rows - 2));
+    const half      = Math.max(1, Math.floor((process.stdout.rows - 2) / 2));
 
     switch (key) {
       case 'q': case '\x03':
@@ -242,24 +339,12 @@ async function main() {
         scrollOffset = maxScroll; redraw(); break;
       case 'h':
         if (problem.hints?.length > 0) {
-          showHints = !showHints;
-          if (showHints) {
-            // Scroll so the Hints header lands near the top of the visible area
-            const preHints = buildLines(problem, loadProgress(), false, showTests).length - 2;
-            scrollOffset = Math.max(0, preHints - 2);
-          }
-          redraw();
+          openPopup('Hints', buildHintLines(problem, popupDims().innerW));
         }
         break;
       case 't':
         if (problem.sampleTestCase) {
-          showTests = !showTests;
-          if (showTests) {
-            // Scroll so the Test Cases header lands near the top of the visible area
-            const preTests = buildLines(problem, loadProgress(), showHints, false).length - 2;
-            scrollOffset = Math.max(0, preTests - 2);
-          }
-          redraw();
+          openPopup('Sample Tests', buildTestLines(problem));
         }
         break;
       case 'r':
@@ -285,7 +370,7 @@ async function main() {
 }
 
 main().catch(e => {
-  process.stdout.write('\x1b[?25h'); // restore cursor on crash
+  process.stdout.write('\x1b[?25h');
   console.error(e.message);
   process.exit(1);
 });
