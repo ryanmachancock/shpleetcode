@@ -241,9 +241,27 @@ async function main() {
       case 'G':
         scrollOffset = maxScroll; redraw(); break;
       case 'h':
-        if (problem.hints?.length > 0) { showHints = !showHints; redraw(); } break;
+        if (problem.hints?.length > 0) {
+          showHints = !showHints;
+          if (showHints) {
+            // Scroll so the Hints header lands near the top of the visible area
+            const preHints = buildLines(problem, loadProgress(), false, showTests).length - 2;
+            scrollOffset = Math.max(0, preHints - 2);
+          }
+          redraw();
+        }
+        break;
       case 't':
-        if (problem.sampleTestCase) { showTests = !showTests; redraw(); } break;
+        if (problem.sampleTestCase) {
+          showTests = !showTests;
+          if (showTests) {
+            // Scroll so the Test Cases header lands near the top of the visible area
+            const preTests = buildLines(problem, loadProgress(), showHints, false).length - 2;
+            scrollOffset = Math.max(0, preTests - 2);
+          }
+          redraw();
+        }
+        break;
       case 'r':
         await runAction('run');
         process.stdout.write('\x1b[2J');
@@ -251,13 +269,8 @@ async function main() {
         break;
       case 's':
         await runAction('submit');
-        if (loadProgress().solved[problem.id]) {
-          process.stdout.write('\x1b[2J');
-          redraw();
-        } else {
-          process.stdout.write('\x1b[2J');
-          redraw();
-        }
+        process.stdout.write('\x1b[2J');
+        redraw();
         break;
       case 'm': {
         const prog = loadProgress();
