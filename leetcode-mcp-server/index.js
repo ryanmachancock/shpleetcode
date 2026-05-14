@@ -154,20 +154,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
       },
       {
-        name: "create_problem_file",
-        description: "Create a new Java file for a problem with boilerplate code in the appropriate directory",
-        inputSchema: {
-          type: "object",
-          properties: {
-            id: {
-              type: "string",
-              description: "Problem ID (e.g., '0001-two-sum')",
-            },
-          },
-          required: ["id"],
-        },
-      },
-      {
         name: "mark_solved",
         description: "Mark a problem as solved with optional notes",
         inputSchema: {
@@ -352,61 +338,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: [{
             type: "text",
             text: output,
-          }],
-        };
-      }
-
-      case "create_problem_file": {
-        const db = loadProblems();
-        const problem = db.problems.find(p => p.id === args.id);
-
-        if (!problem) {
-          return {
-            content: [{
-              type: "text",
-              text: `Problem not found: ${args.id}`,
-            }],
-          };
-        }
-
-        const categoryDir = path.join(WORKSPACE_DIR, categoryToDirectory(problem.category));
-        if (!fs.existsSync(categoryDir)) {
-          fs.mkdirSync(categoryDir, { recursive: true });
-        }
-
-        const filename = slugToFilename(problem.titleSlug, problem.number);
-        const filepath = path.join(categoryDir, filename);
-
-        if (fs.existsSync(filepath)) {
-          return {
-            content: [{
-              type: "text",
-              text: `File already exists: ${filepath}\n\nOpen it with: nvim ${filepath}`,
-            }],
-          };
-        }
-
-        // Create file with boilerplate and problem description as comments
-        const content = `/*
- * ${problem.title}
- * Difficulty: ${problem.difficulty}
- * Category: ${problem.category}
- *
- * ${problem.description.replace(/<[^>]*>/g, '').substring(0, 500)}...
- *
- * LeetCode: ${problem.leetcodeUrl}
- * NeetCode: ${problem.neetcodeUrl}
- */
-
-${problem.boilerplate.java}
-`;
-
-        fs.writeFileSync(filepath, content);
-
-        return {
-          content: [{
-            type: "text",
-            text: `✓ Created: ${filepath}\n\nOpen it with: nvim ${filepath}`,
           }],
         };
       }

@@ -44,11 +44,6 @@ check_database() {
   fi
 }
 
-# Convert category to directory name
-category_to_dir() {
-  echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g'
-}
-
 # Select problem using fzf
 select_problem() {
   local filter="${1:-}"
@@ -63,14 +58,15 @@ select_problem() {
       : { solved: {} };
 
     const filterVal = process.env.DIFFICULTY_FILTER || "";
+    const diffColors = { Easy: "\x1b[32m", Medium: "\x1b[33m", Hard: "\x1b[31m" };
     db.problems
       .filter(p => !filterVal || p.difficulty === filterVal)
       .forEach(p => {
-        const solved = progress.solved[p.id] ? "✓" : "○";
+        const solved = progress.solved[p.id] ? "\x1b[32m✓\x1b[0m" : "\x1b[2m○\x1b[0m";
         const blind = p.blind75 ? "[B75]" : "     ";
-        const diff = p.difficulty.padEnd(6);
+        const diff = (diffColors[p.difficulty] + p.difficulty + "\x1b[0m").padEnd(15);
         const cat = p.category.padEnd(20);
-        const id = p.id.padEnd(60);
+        const id = p.id.padEnd(51);
         console.log(`${id} │ ${solved} ${diff} ${cat} ${blind} ${p.title}`);
       });
   ')
@@ -78,26 +74,11 @@ select_problem() {
   # Pipe to fzf
   local selection
   selection=$(echo "$problem_list" | fzf \
-    --exact \
     --ansi \
-    --header="Type to search problem ID (filename). Esc=cancel" \
+    --header="Search by title, ID, category, or difficulty. Esc=cancel" \
     --header-first \
     --bind='ctrl-j:down,ctrl-k:up' \
-    --preview="PROBLEMS_FILE=$PROBLEMS_FILE PROBLEM_ID=\$(echo {} | awk '{print \$1}') node -e '
-      const fs = require(\"fs\");
-      const db = JSON.parse(fs.readFileSync(process.env.PROBLEMS_FILE, \"utf8\"));
-      const p = db.problems.find(x => x.id === process.env.PROBLEM_ID);
-      if (p) {
-        console.log(\"# \" + p.title);
-        console.log(\"\");
-        console.log(\"**Difficulty:** \" + p.difficulty);
-        console.log(\"**Category:** \" + p.category);
-        console.log(\"**LeetCode:** \" + p.leetcodeUrl);
-        console.log(\"\");
-        const desc = p.description.replace(/<[^>]*>/g, \"\").replace(/&nbsp;/g, \" \").substring(0, 500);
-        console.log(desc);
-      }
-    '" \
+    --preview="PROBLEMS_FILE=$PROBLEMS_FILE PROBLEM_ID=\$(echo {} | awk '{print \$1}') node '$SCRIPT_DIR/preview-problem.js'" \
     --preview-window=right:50%:wrap \
     --prompt="Problem > ")
 
@@ -169,8 +150,17 @@ create_problem_file() {
     }));
   ")
 
-  local filepath=$(echo "$problem_info" | node -e "process.stdin.on('data', d => console.log(JSON.parse(d).filepath))")
-  local category_dir=$(echo "$problem_info" | node -e "process.stdin.on('data', d => console.log(JSON.parse(d).categoryDir))")
+  local parsed
+  parsed=$(echo "$problem_info" | node -e "
+    let d = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', c => d += c);
+    process.stdin.on('end', () => { const o = JSON.parse(d); console.log(o.filepath); console.log(o.categoryDir); });
+  ")
+  local filepath
+  filepath=$(echo "$parsed" | sed -n '1p')
+  local category_dir
+  category_dir=$(echo "$parsed" | sed -n '2p')
 
   # Create directory if needed
   mkdir -p "$WORKSPACE_DIR/$category_dir"
@@ -264,6 +254,117 @@ create_problem_file() {
   echo "$problem_filepath"
 }
 
+# Regenerate -problem.md files from the problems database
+regenerate_problem_files() {
+  local target_id="${1:-}"
+
+  if [ -n "$target_id" ]; then
+    echo -e "${YELLOW}Regenerating: $target_id${NC}"
+  else
+    echo -e "${YELLOW}Regenerating all problem description files...${NC}"
+  fi
+
+  local count
+  count=$(PROBLEMS_FILE="$PROBLEMS_FILE" WORKSPACE_DIR="$WORKSPACE_DIR" TARGET_ID="$target_id" node <<'NODESCRIPT'
+const fs = require('fs');
+const path = require('path');
+const db = JSON.parse(fs.readFileSync(process.env.PROBLEMS_FILE, 'utf8'));
+const workspaceDir = process.env.WORKSPACE_DIR;
+const targetId = process.env.TARGET_ID || '';
+
+const problems = targetId
+  ? db.problems.filter(p => p.id === targetId)
+  : db.problems;
+
+if (targetId && problems.length === 0) {
+  process.stderr.write('Problem not found: ' + targetId + '\n');
+  process.exit(1);
+}
+
+let count = 0;
+for (const p of problems) {
+  const categoryDir = p.category.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  const filename = String(p.number).padStart(3, '0') + '-' + p.titleSlug + '.java';
+  const javaPath = path.join(workspaceDir, categoryDir, filename);
+  const mdPath = javaPath.replace('.java', '-problem.md');
+
+  if (!fs.existsSync(javaPath)) continue;
+
+  const cleanDesc = p.description
+    .replace(/<sup>(.*?)<\/sup>/g, '^$1')
+    .replace(/<sub>(.*?)<\/sub>/g, '_($1)')
+    .replace(/<code>(.*?)<\/code>/g, '`$1`')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n/g, ' ')
+    .replace(/\r/g, '')
+    .replace(/\t/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const formattedDesc = cleanDesc
+    .replace(/(Example \d+:)/g, '\n\n**$1**\n\n')
+    .replace(/Input:/g, '**Input:** ')
+    .replace(/Output:/g, '\n**Output:** ')
+    .replace(/Explanation:/g, '\n**Explanation:** ')
+    .replace(/Constraints:/g, '\n\n## Constraints\n\n')
+    .replace(/Follow[- ]up:/gi, '\n\n## Follow-up\n\n')
+    .replace(/Note:/g, '\n\n**Note:** ')
+    .replace(/\. ([A-Z])/g, '.\n\n$1')
+    .replace(/\n{3,}/g, '\n\n');
+
+  const content = `# ${p.title}
+
+**Difficulty:** ${p.difficulty}
+**Category:** ${p.category}
+**LeetCode:** ${p.leetcodeUrl}
+**NeetCode:** ${p.neetcodeUrl}
+
+---
+
+## Problem Description
+
+${formattedDesc}
+`;
+
+  fs.writeFileSync(mdPath, content);
+  count++;
+}
+
+process.stdout.write(String(count));
+NODESCRIPT
+  )
+
+  echo -e "${GREEN}Regenerated $count problem description file(s).${NC}"
+}
+
+# Mark a problem solved via CLI (without needing Claude as intermediary)
+mark_solved_cli() {
+  local problem_id="$1"
+  local progress_file="$LEETCODE_DIR/progress.json"
+
+  if [ ! -f "$progress_file" ]; then
+    echo -e "${RED}Error: Progress file not found: $progress_file${NC}"
+    exit 1
+  fi
+
+  PROBLEM_ID="$problem_id" PROGRESS_FILE="$progress_file" node <<'NODESCRIPT'
+const fs = require('fs');
+const progressFile = process.env.PROGRESS_FILE;
+const problemId = process.env.PROBLEM_ID;
+const progress = JSON.parse(fs.readFileSync(progressFile, 'utf8'));
+if (!progress.solved) progress.solved = {};
+progress.solved[problemId] = { solvedAt: new Date().toISOString(), notes: '' };
+fs.writeFileSync(progressFile, JSON.stringify(progress, null, 2));
+process.stdout.write('Marked ' + problemId + ' as solved.\n');
+NODESCRIPT
+}
+
 # Launch tmux session
 launch_tmux() {
   local filepath="$1"
@@ -293,7 +394,7 @@ launch_tmux() {
   tmux split-window -h -t "$session_name"
 
   # Split right pane vertically (top/bottom) for Claude and problem description
-  tmux split-window -v -t "$session_name:0.1" -l 20
+  tmux split-window -v -t "$session_name:0.1" -l 30
 
   # Small delay to ensure tmux panes are ready
   sleep 0.1
@@ -328,8 +429,8 @@ main() {
   echo -e "${BLUE}"
   echo "╔═══════════════════════════════════════╗"
   echo "║                                       ║"
-  echo "║          ShpleetCode  🚀              ║"
-  echo "║   NeetCode Practice Environment      ║"
+  echo "║            ShpleetCode  🚀            ║"
+  echo "║     NeetCode Practice Environment     ║"
   echo "║                                       ║"
   echo "╚═══════════════════════════════════════╝"
   echo -e "${NC}"
@@ -339,9 +440,29 @@ main() {
 
   # Parse arguments
   local filter=""
-  if [ $# -gt 0 ]; then
-    filter="$1"
-  fi
+  case "${1:-}" in
+    --regen)
+      regenerate_problem_files "${2:-}"
+      exit 0
+      ;;
+    --mark)
+      if [ -z "${2:-}" ]; then
+        echo -e "${RED}Error: --mark requires a problem ID (e.g. --mark 0001-two-sum)${NC}"
+        exit 1
+      fi
+      mark_solved_cli "$2"
+      exit 0
+      ;;
+    "")
+      ;;
+    *)
+      filter=$(echo "$1" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+      if [[ "$filter" != "Easy" && "$filter" != "Medium" && "$filter" != "Hard" ]]; then
+        echo -e "${RED}Error: Invalid difficulty '$1'. Use Easy, Medium, or Hard.${NC}"
+        exit 1
+      fi
+      ;;
+  esac
 
   # Select problem
   echo -e "${YELLOW}Launching problem selector...${NC}"
