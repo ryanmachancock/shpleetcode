@@ -100,8 +100,16 @@ async function scrapeProblem(neetcodeEntry, index, total) {
       return null;
     }
 
-    // Extract code snippet for Java
     const javaSnippet = leetcodeData.codeSnippets?.find(s => s.lang === 'Java');
+    const pythonSnippet = leetcodeData.codeSnippets?.find(s => s.lang === 'Python3');
+    const cppSnippet = leetcodeData.codeSnippets?.find(s => s.lang === 'C++');
+
+    const foundLangs = ['java', 'python', 'cpp'].filter((l, i) =>
+      [javaSnippet, pythonSnippet, cppSnippet][i]
+    );
+    if (foundLangs.length < 3) {
+      console.log(`  ⚠️  Only found snippets for: ${foundLangs.join(', ') || 'none'}`);
+    }
 
     return {
       id: neetcodeEntry.code,
@@ -118,7 +126,9 @@ async function scrapeProblem(neetcodeEntry, index, total) {
       sampleTestCase: leetcodeData.sampleTestCase || '',
       topicTags: leetcodeData.topicTags?.map(t => t.name) || [],
       boilerplate: {
-        java: javaSnippet?.code || ''
+        java: javaSnippet?.code || '',
+        python: pythonSnippet?.code || '',
+        cpp: cppSnippet?.code || '',
       },
       videoId: neetcodeEntry.video || '',
       leetcodeUrl: `https://leetcode.com/problems/${titleSlug}/`,
@@ -134,6 +144,15 @@ async function main() {
   console.log('🚀 Starting NeetCode problem scraper...\n');
 
   // Load NeetCode data
+  if (!fs.existsSync(NEETCODE_DATA)) {
+    console.error(`❌ Error: NeetCode problem list not found at ${NEETCODE_DATA}`);
+    console.error('');
+    console.error('To fetch it, run:');
+    console.error('  curl -o /tmp/neetcode-raw.json "https://neetcode.io/api/problems"');
+    console.error('');
+    console.error('Then re-run: npm run scrape');
+    process.exit(1);
+  }
   const neetcodeData = JSON.parse(fs.readFileSync(NEETCODE_DATA, 'utf8'));
 
   // Filter for NeetCode 150 problems
