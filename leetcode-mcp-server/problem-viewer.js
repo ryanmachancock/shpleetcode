@@ -258,7 +258,7 @@ async function main() {
   }
 
   let scrollOffset = 0;
-  const popup = { active: false, title: '', lines: [], scroll: 0 };
+  const popup = { active: false, type: '', title: '', lines: [], scroll: 0 };
 
   function redraw() {
     const lines    = buildLines(problem, loadProgress());
@@ -276,8 +276,9 @@ async function main() {
   process.stdin.resume();
   process.stdin.setEncoding('utf8');
 
-  function openPopup(title, lines) {
+  function openPopup(type, title, lines) {
     popup.active = true;
+    popup.type   = type;
     popup.title  = title;
     popup.lines  = lines;
     popup.scroll = 0;
@@ -297,7 +298,9 @@ async function main() {
       const maxScroll  = Math.max(0, popup.lines.length - innerH);
       const half       = Math.max(1, Math.floor(innerH / 2));
 
-      if (key === '\x1b' || key === 'q' || key === '\x03') {
+      if (key === '\x1b' || key === 'q' || key === '\x03' ||
+          (key === 'h' && popup.type === 'hints') ||
+          (key === 't' && popup.type === 'tests')) {
         closePopup();
       } else if (key === 'j' || key === '\x1b[B') {
         popup.scroll = Math.min(popup.scroll + 1, maxScroll); drawPopup(popup);
@@ -339,12 +342,12 @@ async function main() {
         scrollOffset = maxScroll; redraw(); break;
       case 'h':
         if (problem.hints?.length > 0) {
-          openPopup('Hints', buildHintLines(problem, popupDims().innerW));
+          openPopup('hints', 'Hints', buildHintLines(problem, popupDims().innerW));
         }
         break;
       case 't':
         if (problem.sampleTestCase) {
-          openPopup('Sample Tests', buildTestLines(problem));
+          openPopup('tests', 'Sample Tests', buildTestLines(problem));
         }
         break;
       case 'r':
