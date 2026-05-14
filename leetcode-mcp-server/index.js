@@ -50,6 +50,29 @@ function saveProgress(progress) {
   fs.writeFileSync(PROGRESS_FILE, JSON.stringify(progress, null, 2));
 }
 
+function cleanHtml(html) {
+  if (!html) return '';
+  return html
+    .replace(/<sup>(.*?)<\/sup>/g, '^$1')
+    .replace(/<sub>(.*?)<\/sub>/g, '_($1)')
+    .replace(/<code>(.*?)<\/code>/g, '`$1`')
+    .replace(/<strong>(.*?)<\/strong>/g, '**$1**')
+    .replace(/<em>(.*?)<\/em>/g, '*$1*')
+    .replace(/<li>/g, '\n- ')
+    .replace(/<\/li>/g, '')
+    .replace(/<\/?(ul|ol|p|div|span|pre|blockquote)[^>]*>/g, '\n')
+    .replace(/<br\s*\/?>/g, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function getCurrentFilePath() {
   if (fs.existsSync(CURRENT_FILE_PATH)) {
     return fs.readFileSync(CURRENT_FILE_PATH, 'utf8').trim();
@@ -217,6 +240,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const content = fs.readFileSync(filepath, 'utf8');
         const filename = path.basename(filepath);
 
+        // Track attempt
+        const progress = loadProgress();
+        if (!progress.attempts[filename]) {
+          progress.attempts[filename] = { count: 0, firstSeen: new Date().toISOString() };
+        }
+        progress.attempts[filename].count++;
+        progress.attempts[filename].lastSeen = new Date().toISOString();
+        saveProgress(progress);
+
         return {
           content: [{
             type: "text",
@@ -300,7 +332,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (problem.videoId) {
           output += `**NeetCode Video:** https://www.youtube.com/watch?v=${problem.videoId}\n`;
         }
-        output += `\n---\n\n${problem.description}\n\n`;
+        output += `\n---\n\n${cleanHtml(problem.description)}\n\n`;
 
         if (problem.hints.length > 0) {
           output += `## Hints\n`;

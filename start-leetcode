@@ -139,6 +139,9 @@ create_problem_file() {
 
     // Clean description: remove HTML tags, decode entities, normalize whitespace
     const cleanDesc = p.description
+      .replace(/<sup>(.*?)<\/sup>/g, '^\$1')
+      .replace(/<sub>(.*?)<\/sub>/g, '_(\$1)')
+      .replace(/<code>(.*?)<\/code>/g, '\`\$1\`')
       .replace(/<[^>]*>/g, '')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
@@ -295,8 +298,17 @@ launch_tmux() {
   # Small delay to ensure tmux panes are ready
   sleep 0.1
 
+  # Write current file path for MCP server
+  echo "$filepath" > "$LEETCODE_DIR/.current-file"
+
+  # Clean stale swap files for this file
+  local swap_name
+  swap_name=$(echo "$filepath" | sed 's|/|%|g')
+  rm -f "$HOME/.local/state/nvim/swap/${swap_name}.swp" 2>/dev/null || true
+  rm -f "$HOME/.local/share/nvim/swap/${swap_name}.swp" 2>/dev/null || true
+
   # Pane 0 (left): Open solution in Neovim
-  tmux send-keys -t "$session_name:0.0" "nvim '$filepath'" C-m
+  tmux send-keys -t "$session_name:0.0" "nvim -c 'set updatetime=1000 | autocmd CursorHold,CursorHoldI <buffer> silent! write' '$filepath'" C-m
 
   # Pane 1 (top right): Start Claude Code with MCP server
   tmux send-keys -t "$session_name:0.1" "claude" C-m
