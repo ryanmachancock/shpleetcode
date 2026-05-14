@@ -80,7 +80,10 @@ shpleetcode/
 
 ## Tips
 
+- First-time setup: `./start-leetcode --setup-auth` (paste browser cookies once)
 - Filter by difficulty: `./start-leetcode Easy` (case-insensitive)
+- Run sample tests: `./start-leetcode --run` (or tell Claude "run the tests")
+- Submit solution: `./start-leetcode --submit` (or tell Claude "submit")
 - Mark a problem solved: `./start-leetcode --mark 0001-two-sum`
 - Regenerate all description files: `./start-leetcode --regen`
 - Regenerate one description file: `./start-leetcode --regen 0001-two-sum`

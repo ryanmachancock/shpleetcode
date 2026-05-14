@@ -34,7 +34,9 @@ Then optionally call `get_problem(id)` to get the full description, hints, and t
 | `get_problem(id)` | Full description, constraints, hints, test cases |
 | `list_problems(...)` | Browse problems by category/difficulty |
 | `search_problems(query)` | Find problems by title or topic tag |
-| `mark_solved(id)` | Record a problem as solved |
+| `run_tests()` | Run current file against sample test cases on LeetCode |
+| `submit_solution()` | Submit current file to all LeetCode test cases |
+| `mark_solved(id)` | Record as solved (auto-called on accepted submission) |
 | `get_progress()` | Stats by category and difficulty |
 
 ## Coaching approach

@@ -14,6 +14,7 @@ const {
 
 const fs = require('fs');
 const path = require('path');
+const { runTests, submitSolution, formatRunResult, formatSubmitResult, langFromFile } = require('./leetcode-api');
 
 // Paths
 const DATA_DIR = path.join(process.env.HOME, '.leetcode');
@@ -191,6 +192,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ["query"],
+        },
+      },
+      {
+        name: "run_tests",
+        description: "Run the current solution against the sample test cases on LeetCode (equivalent to clicking 'Run Code'). Requires auth setup via ./start-leetcode --setup-auth.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+        },
+      },
+      {
+        name: "submit_solution",
+        description: "Submit the current solution to LeetCode against all test cases (equivalent to clicking 'Submit'). Requires auth setup via ./start-leetcode --setup-auth.",
+        inputSchema: {
+          type: "object",
+          properties: {},
         },
       },
     ],
@@ -437,6 +454,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             text: output,
           }],
         };
+      }
+
+      case "run_tests":
+      case "submit_solution": {
+        const filePath = getCurrentFilePath();
+        if (!filePath) {
+          return { content: [{ type: "text", text: "No file currently open. Start a session first." }] };
+        }
+        if (!fs.existsSync(filePath)) {
+          return { content: [{ type: "text", text: `File not found: ${filePath}` }] };
+        }
+
+        const db = loadProblems();
+        const base = path.basename(filePath, path.extname(filePath));
+        const slug = base.replace(/^\d+-/, '');
+        const problem = db.problems.find(p => p.titleSlug === slug);
+        if (!problem) {
+          return { content: [{ type: "text", text: `Could not find problem for file: ${path.basename(filePath)}` }] };
+        }
+
+        const code = fs.readFileSync(filePath, 'utf8');
+        const lang = langFromFile(filePath);
+
+        let result, formatted;
+        if (name === 'run_tests') {
+          if (!problem.sampleTestCase) {
+            return { content: [{ type: "text", text: "No sample test cases available for this problem." }] };
+          }
+          result = await runTests(problem.titleSlug, code, lang, problem.number, problem.sampleTestCase);
+          formatted = formatRunResult(result);
+        } else {
+          result = await submitSolution(problem.titleSlug, code, lang, problem.number);
+          formatted = formatSubmitResult(result);
+
+          // Auto-mark solved if accepted
+          if (result.status_code === 10) {
+            const progress = loadProgress();
+            if (!progress.solved[problem.id]) {
+              progress.solved[problem.id] = { solvedAt: new Date().toISOString(), notes: 'Auto-marked on acceptance' };
+              saveProgress(progress);
+            }
+          }
+        }
+
+        return { content: [{ type: "text", text: formatted }] };
       }
 
       default:

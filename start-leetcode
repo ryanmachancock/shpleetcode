@@ -254,6 +254,42 @@ create_problem_file() {
   echo "$problem_filepath"
 }
 
+# One-time auth setup — saves LeetCode session cookie to ~/.leetcode/config.json
+setup_auth() {
+  local config_file="$LEETCODE_DIR/config.json"
+
+  echo ""
+  echo -e "${BLUE}LeetCode Auth Setup${NC}"
+  echo "────────────────────────────────────────"
+  echo "You need two values from your browser:"
+  echo ""
+  echo "1. Go to https://leetcode.com and log in"
+  echo "2. Open DevTools (F12) → Application → Cookies → leetcode.com"
+  echo "3. Copy the value of: LEETCODE_SESSION"
+  echo "4. Copy the value of: csrftoken"
+  echo ""
+
+  local session csrf
+  read -rp "Paste LEETCODE_SESSION value: " session
+  read -rp "Paste csrftoken value:         " csrf
+
+  if [ -z "$session" ] || [ -z "$csrf" ]; then
+    echo -e "${RED}Error: Both values are required.${NC}"
+    exit 1
+  fi
+
+  node -e "
+    const fs = require('fs');
+    fs.writeFileSync('$config_file', JSON.stringify({
+      leetcodeSession: process.argv[1],
+      csrfToken: process.argv[2]
+    }, null, 2));
+    console.log('Auth saved to $config_file');
+  " "$session" "$csrf"
+
+  echo -e "${GREEN}Auth configured. Test it with: ./start-leetcode --run${NC}"
+}
+
 # Regenerate -problem.md files from the problems database
 regenerate_problem_files() {
   local target_id="${1:-}"
@@ -441,6 +477,18 @@ main() {
   # Parse arguments
   local filter=""
   case "${1:-}" in
+    --setup-auth)
+      setup_auth
+      exit 0
+      ;;
+    --run)
+      node "$MCP_SERVER_DIR/cli-submit.js" run "${2:-}"
+      exit 0
+      ;;
+    --submit)
+      node "$MCP_SERVER_DIR/cli-submit.js" submit "${2:-}"
+      exit 0
+      ;;
     --regen)
       regenerate_problem_files "${2:-}"
       exit 0
